@@ -2,9 +2,9 @@ import os
 from pathlib import Path
 
 import pandas as pd
-from regex import E
 
 from elfantasy.config import DATA_DIR
+from elfantasy.get_euroleague_data import euroleague_data
 
 """
 # ==============================================================
@@ -19,28 +19,22 @@ datafiles = os.listdir(DATA_DIR)
 playerfiles = [f for f in datafiles if f.startswith("player_data_")]
 teamfiles = [f for f in datafiles if f.startswith("team_data_")]
 
-# get the latest euroleague file
-eulfiles = [f for f in datafiles if f.startswith("euroleague_data_")]
-eulfile_ids = [f.split("_")[-1].split(".")[0] for f in eulfiles]
-eulfile_latest_id = str(max(map(int, eulfile_ids)))
-eulfile_latest = [x for x in eulfiles if eulfile_latest_id in x][0]
-
 # load players data
-pdf = pd.concat([pd.read_csv(Path(DATA_DIR) / f) for f in playerfiles], ignore_index=True).sort_values(
-    by=["Season", "Gamecode", "Player_ID"], ascending=[True, True, True]
+players = (
+    pd.concat([pd.read_csv(Path(DATA_DIR) / f) for f in playerfiles], ignore_index=True)
+    .sort_values(by=["Season", "Gamecode", "Player_ID"], ascending=[True, True, True])
+    .reset_index(drop=True)
 )
 
 # load teams data
-tdf = pd.concat([pd.read_csv(Path(DATA_DIR) / f) for f in teamfiles], ignore_index=True).sort_values(
-    by=["Season", "Gamecode", "Team"], ascending=[True, True, True]
+teams = (
+    pd.concat([pd.read_csv(Path(DATA_DIR) / f) for f in teamfiles], ignore_index=True)
+    .sort_values(by=["Season", "Gamecode", "Team"], ascending=[True, True, True])
+    .reset_index(drop=True)
 )
 
 # load euroleague data
-edf = pd.read_csv(Path(DATA_DIR) / eulfile_latest)
-
-# load euroleagues data
-ldf = pd.concat([pd.read_csv(Path(DATA_DIR) / f) for f in eulfiles], ignore_index=True)
-
+edf = euroleague_data()
 
 """
 # ==============================================================
@@ -48,9 +42,21 @@ ldf = pd.concat([pd.read_csv(Path(DATA_DIR) / f) for f in eulfiles], ignore_inde
 # ==============================================================
 """
 
-ldf["Player"] = ldf["last_name"].str.upper() + ", " + ldf["first_name"].str.upper()
+edf["Player"] = edf["last_name"].str.upper() + ", " + edf["first_name"].str.upper()
 
-player_position_mapping = ldf[["Player", "position"]].drop_duplicates().set_index("Player").to_dict().get("position")
+player_position_mapping = edf[["Player", "position"]].drop_duplicates().set_index("Player").to_dict().get("position")
+
+player_credits_mapping = (
+    edf[["Player", "cr", "week"]]
+    .sort_values(by=["week"], ascending=False)
+    .drop_duplicates(keep="first")
+    .drop(columns=["week"])
+    .set_index("Player")
+    .to_dict()
+    .get("cr")
+)
+
+edf.to_clipboard(index=False)
 
 """
 # ==============================================================
@@ -81,7 +87,7 @@ valuation_minus = [
     "FreeThrowsMissed",
 ]
 
-team_columns = [
+basic_columns = [
     "Season",
     "Phase",
     "PhaseDescription",
@@ -117,57 +123,33 @@ team_columns = [
 ]
 
 # Adjust existing columns
-pdf["Player"] = pdf["Player"].str.upper()
-pdf["Player_ID"] = pdf["Player_ID"].str.strip()
+players["Player"] = players["Player"].str.upper()
+players["Player_ID"] = players["Player_ID"].str.strip()
 
 # New Columns
-pdf["Position"] = pdf["Player"].map(player_position_mapping)
-pdf["MinutesCalculated"] = pdf["Minutes"].apply(minutes_to_float)
-pdf["FieldGoalsMissed2"] = pdf["FieldGoalsAttempted2"] - pdf["FieldGoalsMade2"]
-pdf["FieldGoalsMissed3"] = pdf["FieldGoalsAttempted3"] - pdf["FieldGoalsMade3"]
-pdf["FreeThrowsMissed"] = pdf["FreeThrowsAttempted"] - pdf["FreeThrowsMade"]
-pdf["ValuationPlus"] = pdf[valuation_plus].sum(axis=1)
-pdf["ValuationMinus"] = pdf[valuation_minus].sum(axis=1)
-pdf["ValuationCalculated"] = pdf["ValuationPlus"] - pdf["ValuationMinus"]
-pdf["PhaseDescription"] = pdf["Phase"].map(phase_mapping)
+players["Week"] = players.groupby(["Season", "Team"])["Gamecode"].rank(method="dense").astype(int)
+players["Position"] = players["Player"].map(player_position_mapping)
+players["MinutesCalculated"] = players["Minutes"].apply(minutes_to_float)
+players["FieldGoalsMissed2"] = players["FieldGoalsAttempted2"] - players["FieldGoalsMade2"]
+players["FieldGoalsMissed3"] = players["FieldGoalsAttempted3"] - players["FieldGoalsMade3"]
+players["FreeThrowsMissed"] = players["FreeThrowsAttempted"] - players["FreeThrowsMade"]
+players["ValuationPlus"] = players[valuation_plus].sum(axis=1)
+players["ValuationMinus"] = players[valuation_minus].sum(axis=1)
+players["ValuationCalculated"] = players["ValuationPlus"] - players["ValuationMinus"]
+players["PhaseDescription"] = players["Phase"].map(phase_mapping)
 
 
-team_pdf = (
-    pdf.loc[pdf.Player == "TOTAL", :]
-    .reset_index(drop=True)
-    .sort_values(by=["Season", "Gamecode", "Team", "Home"], ascending=[True, True, True, True])
-    .copy()
-)
+# Splits dataframes into players and teams
+# Players
+pdf = players.loc[~players.Player_ID.isin(["Team", "Total"]), :].reset_index(drop=True)
 
-team_pdf["Win"] = (team_pdf.groupby(["Season", "Gamecode"])["Points"].transform("max") == team_pdf["Points"]).astype(
-    int
-)
+# Teams
+tdf = players.loc[players.Player_ID == "Total", :].reset_index(drop=True)
 
-team_pdf[team_columns].to_clipboard(index=False)
+tdf["Win"] = (tdf.groupby(["Season", "Gamecode"])["Points"].transform("max") == tdf["Points"]).astype(int)
 
-# pdf_grouped = (
-#     pdf.loc[pdf.Player == "TOTAL", :]
-#     .groupby(["Season", "Gamecode", "Team", "Home"])
-#     .agg(
-#         Points=("Points", "sum"),
-#         TotalRebounds=("TotalRebounds", "sum"),
-#         Steals=("Steals", "sum"),
-#         Assistances=("Assistances", "sum"),
-#         BlocksFavour=("BlocksFavour", "sum"),
-#         FoulsReceived=("FoulsReceived", "sum"),
-#         Turnovers=("Turnovers", "sum"),
-#         BlocksAgainst=("BlocksAgainst", "sum"),
-#         FoulsCommited=("FoulsCommited", "sum"),
-#         FieldGoalsMissed2=("FieldGoalsMissed2", "sum"),
-#         FieldGoalsMissed3=("FieldGoalsMissed3", "sum"),
-#         FreeThrowsMissed=("FreeThrowsMissed", "sum"),
-#         ValuationPlus=("ValuationPlus", "sum"),
-#         ValuationMinus=("ValuationMinus", "sum"),
-#         ValuationCalculated=("ValuationCalculated", "sum"),
-#     )
-#     .reset_index()
-# )
 
 # Review
-pdf.columns
+players.columns
 pdf.to_clipboard(index=False)
+tdf[team_columns].to_clipboard(index=False)
