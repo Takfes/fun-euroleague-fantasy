@@ -6,25 +6,53 @@ from euroleague_api.game_stats import GameStats
 
 from elfantasy.config import DATA_DIR
 from elfantasy.functions import (
+    calculate_running_standings_from_games,
+    calculate_standings_from_games,
     get_euroleague_data,
     optimize_team,
     plot_stats_boxes,
     plot_stats_lines,
-    standings_from_games,
     tidy_euroleague_data,
     tidy_games_data,
 )
 
+pd.set_option("display.max_columns", None)
 competition_code = "E"
 season = 2024
 
+# gamestats
 gamestats = GameStats(competition_code)
 games_raw = gamestats.get_game_reports_single_season(season)
 games = tidy_games_data(games_raw)
-standings = standings_from_games(games)
+standings = calculate_standings_from_games(games)
+standings_running = calculate_running_standings_from_games(games)
 
+# euroleague data
 df_raw = get_euroleague_data()
 df = tidy_euroleague_data(df_raw)
+
+"""
+# ==============================================================
+# Simulation - Predictions
+# ==============================================================
+"""
+
+# bring opponent data in the dataframe
+
+games[
+    [
+        "Round",
+        "Gamecode",
+        "HomeTeamCode",
+        "AwayTeamCode",
+    ]
+].to_records(index=False)
+
+# TODO add features to reflect next match difficulty
+# TODO add features to reflect home/away advantage
+# TODO add features to reflect home/away strength
+# TODO add features to reflect team form
+# TODO add features to reflect player form
 
 """
 # ==============================================================

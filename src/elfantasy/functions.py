@@ -292,7 +292,7 @@ def tidy_games_data(df):
     return dfc[columns_selection].rename(columns=columns_mapping)
 
 
-def standings_from_games(df, streak=(1, 3, 5)):
+def calculate_standings_from_games(df, streak=(1, 3, 5)):
     dfc = df.copy()
 
     def coach_scoring(points):
@@ -389,6 +389,21 @@ def standings_from_games(df, streak=(1, 3, 5)):
         column_order.append(colname)
 
     return standings[column_order].drop(columns=["LastGames"])
+
+
+def calculate_running_standings_from_games(games):
+    _rounds = sorted(games.Round.unique().tolist())
+    standings_data = []
+    for r in _rounds:
+        temp = games[games.Round <= r]
+        standings_data.append(standings_from_games(temp).assign(Round=r))
+
+    standings_running = (
+        pd.concat(standings_data, ignore_index=True)
+        .sort_values(["Round", "Won", "PointsDiff"], ascending=[True, False, False])
+        .reset_index(drop=True)
+    )
+    return standings_running
 
 
 def plot_stats_boxes(
