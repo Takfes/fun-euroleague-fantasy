@@ -1,67 +1,32 @@
-# fun-euroleague-fantasy
+# Rules
 
-[![Release](https://img.shields.io/github/v/release/Takfes/fun-euroleague-fantasy)](https://img.shields.io/github/v/release/Takfes/fun-euroleague-fantasy)
-[![Build status](https://img.shields.io/github/actions/workflow/status/Takfes/fun-euroleague-fantasy/main.yml?branch=main)](https://github.com/Takfes/fun-euroleague-fantasy/actions/workflows/main.yml?query=branch%3Amain)
-[![codecov](https://codecov.io/gh/Takfes/fun-euroleague-fantasy/branch/main/graph/badge.svg)](https://codecov.io/gh/Takfes/fun-euroleague-fantasy)
-[![Commit activity](https://img.shields.io/github/commit-activity/m/Takfes/fun-euroleague-fantasy)](https://img.shields.io/github/commit-activity/m/Takfes/fun-euroleague-fantasy)
-[![License](https://img.shields.io/github/license/Takfes/fun-euroleague-fantasy)](https://img.shields.io/github/license/Takfes/fun-euroleague-fantasy)
+## Scoring
 
-This is a template repository for Python projects that use uv for their dependency management.
+- Scores: Players of your fantasy team get a score based on the real statistics recorded in the Turkish Airlines EuroLeague championship. The starting five players, the sixth man and the coach get 100% of the points, while the players on the bench get 50%.
 
-- **Github repository**: <https://github.com/Takfes/fun-euroleague-fantasy/>
-- **Documentation** <https://Takfes.github.io/fun-euroleague-fantasy/>
+- Captain and Bench: Select a Captain among the players of the starting five, he will multiply his score by 1.5x
 
-## Getting started with your project
+## Lineups
+- 2 Centers,4 Forwards,4 Guards,1 Head Coach
 
-### 1. Create a New Repository
+- Each fantasy team can insert up to 6 players from the same Turkish Airlines EuroLeague team (6 players from the same team in the Playoffs phase).
 
-First, create a repository on GitHub with the same name as this project, and then run the following commands:
+- The starting five can be arranged according to the following game formations (guards-forwards-centers):
+2-2-1, 1-2-2, 2-1-2, 1-3-1, 3-1-1.
 
-```bash
-git init -b main
-git add .
-git commit -m "init commit"
-git remote add origin git@github.com:Takfes/fun-euroleague-fantasy.git
-git push -u origin main
-```
+- The player that is moved from the field to the bench halves his score (players that are placed on the bench get 50% of their scores) 
 
-### 2. Set Up Your Development Environment
+- Field-Bench Substitutions: During a Round you can make field-bench substitution, change formation and Captain.
 
-Then, install the environment and the pre-commit hooks with
+## Trades
 
-```bash
-make install
-```
+- Trades: At the end of each Round you can sell and buy players to improve your fantasy team.
 
-This will also generate your `uv.lock` file
+- Between the end of each Round and the beginning of the next one, the trade market opens.
 
-### 3. Run the pre-commit hooks
+- During this time, you can sell up to 4 players of your fantasy team and buy new ones to improve your roster (the number of trades per Round is unlimited in the Play-ins, Playoffs and F4 phases).
 
-Initially, the CI/CD pipeline might be failing due to formatting issues. To resolve those run:
+- NOTE: also the Coach can be traded between each Round. Trading the coach does count in the limit of 4 trades per Round (therefore every fantasy team can trade up to 3 players + the coach or 4 players).
 
-```bash
-uv run pre-commit run -a
-```
-
-### 4. Commit the changes
-
-Lastly, commit the changes made by the two steps above to your repository.
-
-```bash
-git add .
-git commit -m 'Fix formatting issues'
-git push origin main
-```
-
-You are now ready to start development on your project!
-The CI/CD pipeline will be triggered when you open a pull request, merge to main, or when you create a new release.
-
-To finalize the set-up for publishing to PyPI, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/publishing/#set-up-for-pypi).
-For activating the automatic documentation with MkDocs, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/mkdocs/#enabling-the-documentation-on-github).
-To enable the code coverage reports, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/codecov/).
-
-## Releasing a new version
-
----
-
-Repository initiated with [fpgmaas/cookiecutter-uv](https://github.com/fpgmaas/cookiecutter-uv).
+#### Resources
+- [link1](https://euroleaguefantasy.euroleaguebasketball.net/10/rules), [link2](https://www.dunkest.com/en/euroleague/news/fantasy-basketball/187071/euroleague-fantasy-challenge-how-the-classic-mode-works), [link3](https://www.euroleaguebasketball.net/euroleague/news/euroleague-fantasy-challenge-dynamic-new-player-price-changes/), [link4](https://www.euroleaguebasketball.net/en/euroleague/news/euroleague-fantasy-challenge-rules-deadlines-tips/)
