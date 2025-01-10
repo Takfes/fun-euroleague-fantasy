@@ -140,7 +140,8 @@ def get_euroleague_data(season_id=17, stats_type="avg"):
     return pd.concat(datasets, ignore_index=True)
 
 
-def tidy_euroleague_data(df):
+def tidy_euroleague_data(df, games, game_codes):
+    # dfc = df_raw.copy()
     dfc = df.copy()
 
     dtypes = {
@@ -189,16 +190,20 @@ def tidy_euroleague_data(df):
     ]
 
     column_order = [
-        "id",
-        "week",
+        "slug",
         "first_name",
         "last_name",
-        "slug",
-        "team_id",
+        "id",
+        "position",
+        "position_id",
         "team_code",
         "team_name",
-        "position_id",
-        "position",
+        "team_id",
+        "week",
+        "game_code",
+        "home_away",
+        "hometeamcode",
+        "awayteamcode",
         "cr",
         "pdk",
         "plus",
@@ -249,27 +254,26 @@ def tidy_euroleague_data(df):
     dfc["valuation_minus"] = dfc[valuation_minus].sum(axis=1)
     dfc["valuation"] = dfc["valuation_plus"] - dfc["valuation_minus"]
 
+    # bring game_code info in df
+    dfc = (
+        dfc.merge(game_codes, left_on=["week", "team_code"], right_on=["Round", "team"])
+        .drop(columns=["Round", "team"])
+        .rename(columns={"Gamecode": "game_code"})
+        .assign(home_away=lambda x: x["home_away"].replace({"HomeTeamCode": "H", "AwayTeamCode": "A"}))
+    )
+
+    # bringn in home and away team names
+    dfc = dfc.merge(
+        games[["Gamecode", "HomeTeamCode", "AwayTeamCode"]].rename(columns=str.lower),
+        left_on="game_code",
+        right_on="gamecode",
+    )
+
     return dfc[column_order]
 
 
 def tidy_games_data(df):
     dfc = df.copy()
-
-    columns_selection = [
-        "Season",
-        "Gamecode",
-        "Round",
-        "Turn",
-        "Date",
-        "utcDate",
-        "group.rawName",
-        "local.club.name",
-        "local.club.tvCode",
-        "local.score",
-        "road.club.name",
-        "road.club.tvCode",
-        "road.score",
-    ]
 
     columns_mapping = {
         "Season": "Season",
@@ -285,15 +289,35 @@ def tidy_games_data(df):
         "road.score": "AwayTeamScore",
     }
 
+    columns_selection = [
+        "Season",
+        "Gamecode",
+        "Round",
+        "Turn",
+        "Date",
+        "DateTime",
+        "PhaseDesc",
+        "HomeTeamName",
+        "HomeTeamCode",
+        "HomeTeamScore",
+        "AwayTeamName",
+        "AwayTeamCode",
+        "AwayTeamScore",
+    ]
+
     # dfc = games_raw.copy()
-    dfc["Date"] = pd.to_datetime(dfc["utcDate"]).dt.date
+    dfc = dfc.rename(columns=columns_mapping)
+    # add date column
+    dfc["Date"] = pd.to_datetime(dfc["DateTime"]).dt.date
+    # add turn column
     dfc["Turn"] = dfc.groupby(["Season", "Round"])["Date"].transform("rank", method="dense").astype(int)
 
-    return dfc[columns_selection].rename(columns=columns_mapping)
+    return dfc[columns_selection]
 
 
-def calculate_standings_from_games(df, streak=(1, 3, 5)):
+def calculate_standings(df, streak=(1, 3, 5)):
     dfc = df.copy()
+    # dfc = temp.copy() # from the calculate_running_standings
 
     def coach_scoring(points):
         if points > 0:
@@ -391,19 +415,57 @@ def calculate_standings_from_games(df, streak=(1, 3, 5)):
     return standings[column_order].drop(columns=["LastGames"])
 
 
-def calculate_running_standings_from_games(games):
+def calculate_running_standings(games, game_codes):
+    # iterate to create running standings list of dataframe
     _rounds = sorted(games.Round.unique().tolist())
     standings_data = []
     for r in _rounds:
         temp = games[games.Round <= r]
-        standings_data.append(standings_from_games(temp).assign(Round=r))
+        standings_data.append(calculate_standings(temp).assign(Round=r))
 
+    # combine all dataframes into one
     standings_running = (
         pd.concat(standings_data, ignore_index=True)
         .sort_values(["Round", "Won", "PointsDiff"], ascending=[True, False, False])
         .reset_index(drop=True)
     )
-    return standings_running
+
+    # bring game_code info in standings
+    standings_running_gc = (
+        standings_running.merge(game_codes, left_on=["Round", "TeamCode"], right_on=["Round", "team"])
+        .assign(HomeAway=lambda x: x["home_away"].replace({"HomeTeamCode": "H", "AwayTeamCode": "A"}))
+        .drop(columns=["team", "home_away"])
+    ).fillna(0)
+
+    # there are some missing values in the standings due to cancelled(?) games
+    teams = standings_running_gc.TeamCode.unique()
+    rounds = standings_running_gc.Round.unique()
+    # create dataframe with combination of all teams and all rounds
+    standings_running_full = pd.DataFrame(
+        [(r, t) for r in rounds for t in teams],
+        columns=["Round", "TeamCode"],
+    ).merge(standings_running_gc, how="left", on=["Round", "TeamCode"])
+    # Forward fill null values per group of TeamCodes
+    standings_running_full = (
+        standings_running_full.groupby("TeamCode", group_keys=False)
+        .apply(lambda group: group.ffill())
+        .reset_index(drop=True)
+    )
+
+    # reorder columns to have 'Round', 'Gamecode', 'HomeAway' at the front
+    cols = ["Round", "Gamecode", "HomeAway"] + [
+        col for col in standings_running_full.columns if col not in ["Round", "Gamecode", "HomeAway"]
+    ]
+    return standings_running_full[cols]
+
+
+def calculate_game_codes(games):
+    return games.melt(
+        id_vars=["Round", "Gamecode"],
+        value_vars=["HomeTeamCode", "AwayTeamCode"],
+        var_name="home_away",
+        value_name="team",
+    )
 
 
 def plot_stats_boxes(
