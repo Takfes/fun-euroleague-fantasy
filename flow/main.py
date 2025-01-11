@@ -5,12 +5,14 @@ import pandas as pd
 from category_encoders import TargetEncoder
 from euroleague_api.game_stats import GameStats
 from lightgbm import LGBMRegressor
+from sklearn.cluster import FeatureAgglomeration
 from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import RandomizedSearchCV, train_test_split
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, PowerTransformer, StandardScaler
 from xgboost import XGBRegressor
 
 from elfantasy.config import DATA_DIR
@@ -19,7 +21,13 @@ from elfantasy.functions import (
     calculate_running_standings,
     calculate_standings,
     get_euroleague_data,
+    make_player_contribution,
+    make_player_rolling_stats,
+    make_team_form,
+    model_make_estimator,
+    model_make_hpo_estimator,
     optimize_team,
+    plot_regression_diagnostics,
     plot_stats_boxes,
     plot_stats_lines,
     tidy_euroleague_data,
@@ -54,58 +62,9 @@ df = tidy_euroleague_data(df_raw_static, games, game_codes)
 # ==============================================================
 """
 
-standings_running_features = [
-    "Round",
-    "TeamCode",
-    "HomeWinRate",
-    "AwayWinRate",
-    "WinRate",
-    "WinsLast1Games",
-    "WinsLast3Games",
-    "WinsLast5Games",
-]
-
-home_standings = (
-    standings_running[standings_running_features]
-    .assign(Round=lambda x: x.Round + 1)
-    .rename(columns={c: f"HomeTeam_{c}" for c in standings_running_features if c not in ["Round", "TeamCode"]})
-)
-
-away_standings = (
-    standings_running[standings_running_features]
-    .assign(Round=lambda x: x.Round + 1)
-    .rename(columns={c: f"AwayTeam_{c}" for c in standings_running_features if c not in ["Round", "TeamCode"]})
-)
-
-df_team_features = (
-    df.merge(home_standings, left_on=["week", "hometeamcode"], right_on=["Round", "TeamCode"], how="left")
-    .drop(columns=["Round", "TeamCode"])
-    .merge(away_standings, left_on=["week", "awayteamcode"], right_on=["Round", "TeamCode"], how="left")
-    .drop(columns=["Round", "TeamCode"])
-)
-
-df_predict = df_team_features.copy()
-
-# if were to use the previous week's valuation as a predictor
-df_predict["valuation_lag_1"] = (
-    df_predict.sort_values(by=["week"], ascending=True).groupby(["slug"])["valuation"].shift()
-)
-
-# if were to use the rolling average of the previous 3 weeks as a predictor
-df_predict["valuation_roll_3"] = (
-    df_predict.sort_values(by=["week"], ascending=True)
-    .groupby(["slug"])["valuation"]
-    .rolling(3, closed="left")
-    .mean()
-    .reset_index(0, drop=True)
-)
-
-# Calculate errors
-df_predict["abs_error_lag_1"] = abs(df_predict["valuation"] - df_predict["valuation_lag_1"])
-df_predict["abs_error_roll_3"] = abs(df_predict["valuation"] - df_predict["valuation_roll_3"])
-
-# Review
-df_predict[["abs_error_lag_1", "abs_error_roll_3"]].describe()
+df1 = make_team_form(df, standings_running)
+df2 = make_player_contribution(df1)
+df3 = make_player_rolling_stats(df2)
 
 """
 # ==============================================================
@@ -113,143 +72,83 @@ df_predict[["abs_error_lag_1", "abs_error_roll_3"]].describe()
 # ==============================================================
 """
 
-model_columns = [
+
+# Define baselines
+baseline_cols = [
+    "valuation_lag_1_mprs",
+    "valuation_lag_3_mprs",
+    "valuation_roll_3_mprs",
+]
+
+baseline_results = {}
+for bc in baseline_cols:
+    baseline_results[bc] = round(mean_absolute_error(df3["valuation"], df3[bc]).item(), 4)
+
+print(baseline_results)
+
+# Define the data
+idcols = [
+    "week",
     "slug",
-    "position_id",
     "team_code",
-    "home_away",
-    "HomeTeam_HomeWinRate",
-    "HomeTeam_AwayWinRate",
-    "HomeTeam_WinRate",
-    "HomeTeam_WinsLast1Games",
-    "HomeTeam_WinsLast3Games",
-    "HomeTeam_WinsLast5Games",
-    "AwayTeam_HomeWinRate",
-    "AwayTeam_AwayWinRate",
-    "AwayTeam_WinRate",
-    "AwayTeam_WinsLast1Games",
-    "AwayTeam_WinsLast3Games",
-    "AwayTeam_WinsLast5Games",
-    "valuation_lag_1",
-    "valuation_roll_3",
-    "valuation",
 ]
-
+# Define the features
+feats = [x for x in df3.columns if ("mtf" in x) or ("mpc" in x) or ("mprs" in x)]
 # Define feature columns
-categorical_features = ["slug", "team_code"]
-
-categorical_features = ["team_code"]
-one_hot_features = ["home_away", "position_id"]
-numerical_features = [
-    "HomeTeam_HomeWinRate",
-    "HomeTeam_AwayWinRate",
-    "HomeTeam_WinRate",
-    "HomeTeam_WinsLast1Games",
-    "HomeTeam_WinsLast3Games",
-    "HomeTeam_WinsLast5Games",
-    "AwayTeam_HomeWinRate",
-    "AwayTeam_AwayWinRate",
-    "AwayTeam_WinRate",
-    "AwayTeam_WinsLast1Games",
-    "AwayTeam_WinsLast3Games",
-    "AwayTeam_WinsLast5Games",
-    "valuation_lag_1",
-    "valuation_roll_3",
-]
-
-# Preprocessing for numerical data
-numerical_transformer = StandardScaler()
-
-# Preprocessing for categorical data
-categorical_transformer = TargetEncoder()
-one_hot_transformer = OneHotEncoder(handle_unknown="ignore", drop="first")
-
-# Bundle preprocessing for numerical and categorical data
-preprocessor = ColumnTransformer(
-    transformers=[
-        ("num", numerical_transformer, numerical_features),
-        ("cat", categorical_transformer, categorical_features),
-        ("onehot", one_hot_transformer, one_hot_features),
-    ]
-)
-
-
-# Define the models
-model_lgbm = LGBMRegressor(
-    n_estimators=1000,
-    learning_rate=0.01,
-    num_leaves=31,
-    max_depth=-1,
-    min_child_samples=20,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    reg_alpha=0.1,
-    reg_lambda=0.1,
-    random_state=1990,
-)
-
-model_xgb = XGBRegressor(
-    n_estimators=1000,
-    learning_rate=0.01,
-    max_depth=6,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    reg_alpha=0.1,
-    reg_lambda=0.1,
-    random_state=1990,
-)
-
-model_knn = KNeighborsRegressor(
-    n_neighbors=10,
-    weights="uniform",
-    algorithm="auto",
-    leaf_size=30,
-    p=2,
-    metric="minkowski",
-)
-
-model = model_lgbm
-
-# Create and evaluate the pipeline
-pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("model", model)])
+categorical_features = ["team_code", "slug"]
+numerical_features = [x for x in feats if x not in categorical_features]
+# Define the target
+target = "valuation"
+# Define the model columns
+model_columns = idcols + feats + [target]
+# Define the design matrix
+design_matrix = df3[model_columns].sort_values(by="week", ascending=True).dropna().reset_index(drop=True)
 
 # Split data into train and test sets
-modeling_data = df_predict[model_columns].dropna()
+X = design_matrix[model_columns].drop(columns=["valuation"])
+y = design_matrix["valuation"]
 
-X = modeling_data[model_columns].drop(columns=["valuation"])
-y = modeling_data["valuation"]
+# Make the estimator
+model_string = "XGB"
+estimator = model_make_estimator(model_string, numerical_features, categorical_features)
 
-# preprocessor.fit_transform(X, y)
+# Parameters
+min_weeks = 3  # Minimum number of weeks for initial training
+total_weeks = design_matrix["week"].nunique()
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=1990, shuffle=False)
+# Cross-validation
+maes = []
 
-[x.shape for x in [X_train, X_test, y_train, y_test]]
+for current_week in range(min_weeks, total_weeks):
+    train_indices = X[X["week"] <= current_week].index
+    test_indices = X[X["week"] == current_week + 1].index
 
-# Fit the model
-pipeline.fit(X_train, y_train)
+    X_train = X.loc[train_indices].drop(columns=["week"])
+    y_train = y.loc[train_indices]
+    X_test = X.loc[test_indices].drop(columns=["week"])
+    y_test = y.loc[test_indices]
 
-# Make predictions
-y_pred = pipeline.predict(X_test)
+    pt = PowerTransformer(method="yeo-johnson")
+    # Fit and transform the training target variable
+    y_train_transformed = pt.fit_transform(y_train.values.reshape(-1, 1)).flatten()
+    # Transform the test target variable
+    y_test_transformed = pt.transform(y_test.values.reshape(-1, 1)).flatten()
 
-# Evaluate the model
-mae = mean_absolute_error(y_test, y_pred)
-print(f"Mean Absolute Error: {mae}")
+    # Fit the model
+    estimator.fit(X_train, y_train_transformed)
 
+    # Make predictions
+    y_pred_transformed = estimator.predict(X_test)
+    y_pred = pt.inverse_transform(y_pred_transformed.reshape(-1, 1)).flatten()
 
-# Extract feature importances
-feature_importances = pipeline.named_steps["model"].feature_importances_
-feature_names = (
-    numerical_features
-    + categorical_features
-    + list(pipeline.named_steps["preprocessor"].named_transformers_["onehot"].get_feature_names_out(one_hot_features))
-)
+    mae = mean_absolute_error(y_test, y_pred)
+    maes.append(mae.item())
+    print(f"Mean Absolute Error: for {current_week=} {mae:.2f}")
+    print(f"Mean Absolute Error: {mae:.2f} +/- {np.std(maes):.2f}")
+    print()
 
-# Create a DataFrame for plotting
-importance_df = pd.DataFrame({"Feature": feature_names, "Importance": feature_importances}).sort_values(
-    by="Importance", ascending=False
-)
-
-importance_df.plot(kind="barh", x="Feature", y="Importance", legend=False, figsize=(10, 8))
+# Call the function with the appropriate arguments
+plot_regression_diagnostics(y_test, y_pred)
 
 
 """

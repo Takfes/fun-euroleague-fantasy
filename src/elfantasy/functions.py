@@ -6,6 +6,18 @@ import pandas as pd
 import pyomo.environ as pyo
 import requests
 import seaborn as sns
+from category_encoders import TargetEncoder
+from euroleague_api.game_stats import GameStats
+from lightgbm import LGBMRegressor
+from sklearn.cluster import FeatureAgglomeration
+from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error
+from sklearn.model_selection import RandomizedSearchCV, train_test_split
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, PowerTransformer, StandardScaler
+from xgboost import XGBRegressor
 
 
 def timeit(func):
@@ -315,6 +327,150 @@ def tidy_games_data(df):
     return dfc[columns_selection]
 
 
+def plot_stats_boxes(
+    df,
+    position,
+    criterion="cr",
+    category="high",
+    stats_agg_func="mean",
+    topx_players_presence=20,
+    stats_to_show=5,
+    max_players_to_show=8,
+):
+    infovars = ["slug", "team_name", "position", "team_code"]
+
+    variables = [
+        "fgm",
+        "tpm",
+        "ftm",
+        "ast",
+        "reb",
+        "stl",
+        "blk",
+        "blka",
+        "oreb",
+        "dreb",
+        "tov",
+        "pf",
+        "fouls_received",
+    ]
+
+    # select player with enough minutes and in specific position
+    df_position = (
+        df[df.position == position]
+        .loc[lambda x: x.slug.isin(x.groupby("slug")["min"].mean().nlargest(topx_players_presence).index)]
+        .assign(greedy=lambda x: x.valuation / x.cr)
+    )
+
+    # split into categories - low, medium, high
+    player_cuts = pd.qcut(
+        df_position.groupby("slug")[criterion].mean(), q=3, labels=["low", "medium", "high"]
+    ).to_dict()
+
+    df_filtered = df_position.loc[lambda x: x.slug.isin([x for x in player_cuts if player_cuts[x] == category])]
+
+    if df_filtered.slug.nunique() > 8:
+        df_filtered = df_filtered.loc[
+            lambda x: x.slug.isin(x.groupby("slug")[criterion].mean().nlargest(max_players_to_show).index)
+        ]
+
+    # select most relevant stats
+    variables_filtered = df_filtered[variables].agg(stats_agg_func).nlargest(stats_to_show).index
+
+    # melt the dataframe
+    df_long = df_filtered.melt(id_vars=infovars, value_vars=variables_filtered)
+
+    # Set the color palette
+    palette = sns.color_palette("Paired")
+
+    # Create the plot
+    sns.boxplot(data=df_long, x="variable", y="value", hue="slug", palette=palette)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize="small")
+    plt.show()
+
+
+def plot_stats_lines(df, slug, stats_agg_func="mean", stats_to_show=3):
+    df_player = df[df.slug == slug].copy()
+
+    variables = [
+        "fgm",
+        "tpm",
+        "ftm",
+        "ast",
+        "reb",
+        "stl",
+        "blk",
+        "blka",
+        "oreb",
+        "dreb",
+        "tov",
+        "pf",
+        "fouls_received",
+    ]
+
+    evalvars = ["valuation", "cr"]
+
+    # select most relevant stats
+    variables_filtered = df_player[variables].agg(stats_agg_func).nlargest(stats_to_show).index
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 8))
+
+    for var in evalvars:
+        ax1.plot(df_player.week, df_player[var], label=var)
+    ax1.set_title("evaluation over time")
+    ax1.legend()
+
+    for var in variables_filtered:
+        ax2.plot(df_player.week, df_player[var], label=var)
+    ax2.set_title("statistics over time")
+    ax2.legend()
+
+    ax1.set_xticks(df_player.week)
+    ax1.set_xticklabels(df_player.week)
+    plt.xlabel("Time")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_regression_diagnostics(y_test, y_pred):
+    # Calculate errors
+    errors = y_test - y_pred
+
+    # Create a figure with four subplots
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(15, 12))
+
+    # Plot errors vs y_test
+    axes[0, 0].scatter(y_test, errors, alpha=0.5)
+    axes[0, 0].axhline(y=0, color="r", linestyle="--")
+    axes[0, 0].set_xlabel("Actual Values")
+    axes[0, 0].set_ylabel("Errors")
+    axes[0, 0].set_title("Errors vs Actual Values")
+
+    # Plot errors vs y_pred
+    axes[0, 1].scatter(y_pred, errors, alpha=0.5)
+    axes[0, 1].axhline(y=0, color="r", linestyle="--")
+    axes[0, 1].set_xlabel("Predicted Values")
+    axes[0, 1].set_ylabel("Errors")
+    axes[0, 1].set_title("Errors vs Predicted Values")
+
+    # Plot y_test vs y_pred
+    axes[1, 0].scatter(y_test, y_pred, alpha=0.5)
+    axes[1, 0].plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], "r--")
+    axes[1, 0].set_xlabel("Actual Values")
+    axes[1, 0].set_ylabel("Predicted Values")
+    axes[1, 0].set_title("Actual vs Predicted Values")
+
+    # Plot feature importances or coefficients
+    axes[1, 1].hist(y_pred, bins=30, alpha=0.7, label="Predicted")
+    axes[1, 1].hist(y_test, bins=30, alpha=0.7, label="Actual")
+    axes[1, 1].set_title("Predicted vs Actual Distribution")
+    axes[1, 1].legend()
+
+    # Show the plots
+    plt.tight_layout()
+    plt.show()
+
+
 def calculate_standings(df, streak=(1, 3, 5)):
     dfc = df.copy()
     # dfc = temp.copy() # from the calculate_running_standings
@@ -468,106 +624,234 @@ def calculate_game_codes(games):
     )
 
 
-def plot_stats_boxes(
-    df,
-    position,
-    criterion="cr",
-    category="high",
-    stats_agg_func="mean",
-    topx_players_presence=20,
-    stats_to_show=5,
-    max_players_to_show=8,
-):
-    infovars = ["slug", "team_name", "position", "team_code"]
-
-    variables = [
-        "fgm",
-        "tpm",
-        "ftm",
-        "ast",
-        "reb",
-        "stl",
-        "blk",
-        "blka",
-        "oreb",
-        "dreb",
-        "tov",
-        "pf",
-        "fouls_received",
+def make_team_form(df, standings_running):
+    dfc = df.copy()
+    function_suffix = "mtf"
+    # select features to maintain out of running standings dataset
+    standings_running_features = [
+        "Round",
+        "TeamCode",
+        "Won",
+        "HomeWinRate",
+        "AwayWinRate",
+        "WinRate",
+        "WinsLast1Games",
+        "WinsLast3Games",
+        "WinsLast5Games",
     ]
-
-    # select player with enough minutes and in specific position
-    df_position = (
-        df[df.position == position]
-        .loc[lambda x: x.slug.isin(x.groupby("slug")["min"].mean().nlargest(topx_players_presence).index)]
-        .assign(greedy=lambda x: x.valuation / x.cr)
+    # create home and away standings
+    # ! x.Round + 1 --> is to bind with the next week's game and prevent data leakage
+    # home standings
+    home_standings = (
+        standings_running[standings_running_features]
+        .assign(Round=lambda x: x.Round + 1)
+        .rename(columns={c: f"HomeTeam_{c}" for c in standings_running_features if c not in ["Round", "TeamCode"]})
+    )
+    # away standings
+    away_standings = (
+        standings_running[standings_running_features]
+        .assign(Round=lambda x: x.Round + 1)
+        .rename(columns={c: f"AwayTeam_{c}" for c in standings_running_features if c not in ["Round", "TeamCode"]})
+    )
+    # merge home and away standings
+    team_form = (
+        dfc.merge(home_standings, left_on=["week", "hometeamcode"], right_on=["Round", "TeamCode"], how="left")
+        .drop(columns=["Round", "TeamCode"])
+        .merge(away_standings, left_on=["week", "awayteamcode"], right_on=["Round", "TeamCode"], how="left")
+        .fillna(0)
+        .assign(home_away_factor=lambda x: np.where(x["home_away"] == "H", 1, -1))
+        .assign(
+            win_diff=lambda x: x["home_away_factor"] * (x["HomeTeam_Won"] - x["AwayTeam_Won"]),
+            win_rate_diff=lambda x: x["home_away_factor"] * (x["HomeTeam_WinRate"] - x["AwayTeam_WinRate"]),
+            win_rate_ha_diff=lambda x: x["home_away_factor"] * (x["HomeTeam_HomeWinRate"] - x["AwayTeam_AwayWinRate"]),
+            win_last1games=lambda x: x["home_away_factor"]
+            * (x["HomeTeam_WinsLast1Games"] - x["AwayTeam_WinsLast1Games"]),
+            win_last3games=lambda x: x["home_away_factor"]
+            * (x["HomeTeam_WinsLast3Games"] - x["AwayTeam_WinsLast3Games"]),
+            win_last5games=lambda x: x["home_away_factor"]
+            * (x["HomeTeam_WinsLast5Games"] - x["AwayTeam_WinsLast5Games"]),
+        )
+        .drop(
+            columns=[
+                "Round",
+                "TeamCode",
+                "HomeTeam_AwayWinRate",
+                "AwayTeam_HomeWinRate",
+                "HomeTeam_Won",
+                "AwayTeam_Won",
+                "HomeTeam_WinRate",
+                "AwayTeam_WinRate",
+                "HomeTeam_HomeWinRate",
+                "AwayTeam_AwayWinRate",
+                "HomeTeam_WinsLast1Games",
+                "HomeTeam_WinsLast3Games",
+                "HomeTeam_WinsLast5Games",
+                "AwayTeam_WinsLast3Games",
+                "AwayTeam_WinsLast1Games",
+                "AwayTeam_WinsLast5Games",
+            ]
+        )
+        .rename(columns=lambda x: x.lower())
     )
 
-    # split into categories - low, medium, high
-    player_cuts = pd.qcut(
-        df_position.groupby("slug")[criterion].mean(), q=3, labels=["low", "medium", "high"]
-    ).to_dict()
+    # identify newly created columns
+    new_columns = [x for x in team_form if x not in df.columns]
+    new_columns_names = {x: f"{x}_{function_suffix}" for x in new_columns}
 
-    df_filtered = df_position.loc[lambda x: x.slug.isin([x for x in player_cuts if player_cuts[x] == category])]
-
-    if df_filtered.slug.nunique() > 8:
-        df_filtered = df_filtered.loc[
-            lambda x: x.slug.isin(x.groupby("slug")[criterion].mean().nlargest(max_players_to_show).index)
-        ]
-
-    # select most relevant stats
-    variables_filtered = df_filtered[variables].agg(stats_agg_func).nlargest(stats_to_show).index
-
-    # melt the dataframe
-    df_long = df_filtered.melt(id_vars=infovars, value_vars=variables_filtered)
-
-    # Set the color palette
-    palette = sns.color_palette("Paired")
-
-    # Create the plot
-    sns.boxplot(data=df_long, x="variable", y="value", hue="slug", palette=palette)
-    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize="small")
-    plt.show()
+    return team_form.rename(columns=new_columns_names)
 
 
-def plot_stats_lines(df, slug, stats_agg_func="mean", stats_to_show=3):
-    df_player = df[df.slug == slug].copy()
+def make_player_contribution(df, features=None):
+    # player contributions
+    dfc = df.copy()
+    function_suffix = "mpc"
 
-    variables = [
-        "fgm",
-        "tpm",
-        "ftm",
-        "ast",
-        "reb",
-        "stl",
-        "blk",
-        "blka",
-        "oreb",
-        "dreb",
-        "tov",
-        "pf",
-        "fouls_received",
+    # softmax function
+    def softmax(x):
+        exp_x = np.exp(x - np.max(x))
+        return exp_x / exp_x.sum()
+
+    # features for which to calculate contribution
+    features = [
+        "plus_minus",
+        "valuation",
+        "min",
     ]
 
-    evalvars = ["valuation", "cr"]
+    # apply contribution features
+    for feat in features:
+        # player contribution per position - as softmax
+        dfc[f"{feat}_contrib_pos_sft"] = dfc.groupby(["week", "team_name", "team_code", "position"], as_index=False)[
+            feat
+        ].transform(softmax)
+        # ! shift to prevent data leakage
+        dfc[f"{feat}_contrib_pos_sft"] = dfc[f"{feat}_contrib_pos_sft"] = (
+            dfc.sort_values(by=["week"], ascending=True)
+            .groupby(["slug"], as_index=False)[f"{feat}_contrib_pos_sft"]
+            .shift()
+        )
 
-    # select most relevant stats
-    variables_filtered = df_player[variables].agg(stats_agg_func).nlargest(stats_to_show).index
+        # player contribution per team - as pct over total
+        dfc[f"{feat}_contrib_ttl_agg"] = dfc[feat] / dfc.groupby(["week", "team_name", "team_code"], as_index=False)[
+            feat
+        ].transform("sum")
+        # ! shift to prevent data leakage
+        dfc[f"{feat}_contrib_ttl_agg"] = (
+            dfc.sort_values(by=["week"], ascending=True)
+            .groupby(["slug"], as_index=False)[f"{feat}_contrib_ttl_agg"]
+            .shift()
+        )
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 8))
+    # identify newly created columns
+    new_columns = [x for x in dfc if x not in df.columns]
+    new_columns_names = {x: f"{x}_{function_suffix}" for x in new_columns}
 
-    for var in evalvars:
-        ax1.plot(df_player.week, df_player[var], label=var)
-    ax1.set_title("evaluation over time")
-    ax1.legend()
+    return dfc.fillna(0).rename(columns=new_columns_names)
 
-    for var in variables_filtered:
-        ax2.plot(df_player.week, df_player[var], label=var)
-    ax2.set_title("statistics over time")
-    ax2.legend()
 
-    ax1.set_xticks(df_player.week)
-    ax1.set_xticklabels(df_player.week)
-    plt.xlabel("Time")
-    plt.tight_layout()
-    plt.show()
+def make_player_rolling_stats(df, features=None, lags=(1, 3), rolls=(3,)):
+    dfc = df.copy()
+    function_suffix = "mprs"
+    # infer features to apply rolling stats
+    if features is None:
+        features = [x for x in dfc.columns if x == "valuation" or "contrib" in x]
+    # apply rolling stats
+    for feature in features:
+        # Lag Features
+        for lag in lags:
+            # create lag feature
+            dfc[f"{feature}_lag_{lag}"] = (
+                dfc.sort_values(by=["week"], ascending=True).groupby(["slug"])[f"{feature}"].shift(lag)
+            )
+
+        # Rolling Features
+        for roll in rolls:
+            # create rolling average feature
+            dfc[f"{feature}_roll_{roll}"] = (
+                dfc.sort_values(by=["week"], ascending=True)
+                .groupby(["slug"])[f"{feature}"]
+                .rolling(roll, closed="left")
+                .mean()
+                .reset_index(0, drop=True)
+            )
+
+    # identify newly created columns
+    new_columns = [x for x in dfc if x not in df.columns]
+    new_columns_names = {x: f"{x}_{function_suffix}" for x in new_columns}
+
+    return dfc.fillna(0).rename(columns=new_columns_names)
+
+
+def model_make_estimator(model_string, nums, cats):
+    # Preprocessing for numerical data
+    numerical_transformer = Pipeline(
+        steps=[
+            ("scaler", StandardScaler()),
+            ("polynomial_features", PolynomialFeatures(degree=2, interaction_only=True, include_bias=False)),
+            ("feature_agglomeration", FeatureAgglomeration(n_clusters=10)),
+            # ("polynomial_features", PolynomialFeatures(degree=2, interaction_only=True, include_bias=False)),
+        ]
+    )
+
+    # Preprocessing for categorical data
+    categorical_transformer = TargetEncoder()
+
+    # Bundle preprocessing for numerical and categorical data
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", numerical_transformer, nums),
+            ("cat", categorical_transformer, cats),
+        ]
+    )
+
+    # Define the models
+    model_lgbm = LGBMRegressor(
+        n_estimators=1000,
+        learning_rate=0.01,
+        num_leaves=31,
+        max_depth=-1,
+        min_child_samples=20,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        reg_alpha=0.01,
+        reg_lambda=0.01,
+        random_state=1990,
+    )
+
+    model_xgb = XGBRegressor(
+        n_estimators=1000,
+        learning_rate=0.01,
+        max_depth=6,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        reg_alpha=0.1,
+        reg_lambda=0.1,
+        random_state=1990,
+    )
+
+    model_knn = KNeighborsRegressor(
+        n_neighbors=10,
+        weights="uniform",
+        algorithm="auto",
+        leaf_size=30,
+        p=2,
+        metric="minkowski",
+    )
+
+    model_lr = LinearRegression()
+
+    # Add the linear regression model to the list of models
+    models = {
+        "LGBM": model_lgbm,
+        "XGB": model_xgb,
+        "KNN": model_knn,
+        "LinearRegression": model_lr,
+    }
+
+    # Choose the model for hyperparameter optimization
+    model = models[model_string]  # or any other model from the models dictionary
+
+    # Create and evaluate the pipeline
+    pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("model", model)])
+
+    return pipeline
