@@ -52,11 +52,22 @@ df = tidy_euroleague_data(df_raw_static, games, game_codes)
 # ==============================================================
 """
 
+# TODO : bring info about win or loss games in df - for reporting not modeling
+# TODO : add feature in df ranking of players per week based on value
+# TODO : add all time valuation and its std per player and week
+# TODO : add feature offense/defense rating - defeat but player did well
+# TODO : create feature class that will work per week - valuation of all available observations vs relying on preconstructed features - create features on demand
+# TODO : add feature - team total valuation per week
+# TODO : explore features through correlation matrix - then create interactions
+# TODO : explore GroupedCrossValidation - instead of manual thing
+
 df1 = make_team_form(df, standings_running)
 df2 = make_player_contribution(df1)
 df3 = make_player_rolling_stats(df2)
 
 df_features = df3.sort_values(by=["week", "team_code", "slug"], ascending=True).reset_index(drop=True).copy()
+
+# corr = df_features.filter(like="mtf").corr()
 
 """
 # ==============================================================
@@ -219,8 +230,6 @@ for w in range(min_weeks + 1, df_predictions.week.max().item() + 1):
     solutions_model[w] = sol
 
 # Collect results
-
-pd.DataFrame(solutions_optimal).T
 
 simres = pd.concat(
     [
