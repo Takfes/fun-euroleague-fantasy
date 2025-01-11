@@ -1,5 +1,6 @@
 import time
 
+# import highspy
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -10,7 +11,7 @@ from category_encoders import TargetEncoder
 from euroleague_api.game_stats import GameStats
 from lightgbm import LGBMRegressor
 from sklearn.cluster import FeatureAgglomeration
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import RandomizedSearchCV, train_test_split
@@ -33,7 +34,13 @@ def timeit(func):
 
 
 @timeit
-def optimize_team(data, value_col, budget=100, guards=4, forwards=4, centers=2):
+def build_opt_model(data, value_col, use_solver="glpk", budget=100, guards=4, forwards=4, centers=2):
+    # df = dfw.copy()
+    # value_col = 'valuation'
+    # budget=100
+    # guards=4
+    # forwards=4
+    # centers=2
     df = data.copy()
     max_players = guards + forwards + centers
 
@@ -97,20 +104,22 @@ def optimize_team(data, value_col, budget=100, guards=4, forwards=4, centers=2):
     model.obj = pyo.Objective(rule=obj, sense=pyo.maximize)
 
     # solver options ------------------------------------------------
-    solver = pyo.SolverFactory("appsi_highs")
-
-    solver.options["tee"] = False
-    solver.options["parallel"] = "on"
-    solver.options["time_limit"] = 3600 / 2  # 30 minutes time limit
-    solver.options["presolve"] = "on"
-    solver.options["mip_rel_gap"] = 0.01  # 1% relative gap
-    solver.options["simplex_strategy"] = 1  # Dual simplex
-    solver.options["simplex_max_concurrency"] = 8  # Max concurrency
-    solver.options["mip_min_logging_interval"] = 10  # Log every 10 seconds
-    solver.options["mip_heuristic_effort"] = 0.2  # Increase heuristic effort
-    solver.options["log_file"] = (
-        "highs.log"  # Sometimes HiGHS doesn't update the console as it solves, so write log file too
-    )
+    if use_solver == "appsi_highs":
+        solver = pyo.SolverFactory("appsi_highs")
+        solver.options["tee"] = False
+        solver.options["parallel"] = "on"
+        solver.options["time_limit"] = 3600 / 2  # 30 minutes time limit
+        solver.options["presolve"] = "on"
+        solver.options["mip_rel_gap"] = 0.01  # 1% relative gap
+        solver.options["simplex_strategy"] = 1  # Dual simplex
+        solver.options["simplex_max_concurrency"] = 8  # Max concurrency
+        solver.options["mip_min_logging_interval"] = 10  # Log every 10 seconds
+        solver.options["mip_heuristic_effort"] = 0.2  # Increase heuristic effort
+        solver.options["log_file"] = (
+            "highs.log"  # Sometimes HiGHS doesn't update the console as it solves, so write log file too
+        )
+    else:
+        solver = pyo.SolverFactory(use_solver)
     # solver options ------------------------------------------------
 
     solver.solve(model, tee=False)
@@ -782,7 +791,7 @@ def make_player_rolling_stats(df, features=None, lags=(1, 3), rolls=(3,)):
     return dfc.fillna(0).rename(columns=new_columns_names)
 
 
-def model_make_estimator(model_string, nums, cats):
+def build_pred_model(model_string, nums, cats, transform_target=False):
     # Preprocessing for numerical data
     numerical_transformer = Pipeline(
         steps=[
@@ -807,10 +816,10 @@ def model_make_estimator(model_string, nums, cats):
     # Define the models
     model_lgbm = LGBMRegressor(
         n_estimators=1000,
-        learning_rate=0.01,
-        num_leaves=31,
+        learning_rate=0.001,
+        num_leaves=71,
         max_depth=-1,
-        min_child_samples=20,
+        min_child_samples=10,
         subsample=0.8,
         colsample_bytree=0.8,
         reg_alpha=0.01,
@@ -820,12 +829,13 @@ def model_make_estimator(model_string, nums, cats):
 
     model_xgb = XGBRegressor(
         n_estimators=1000,
-        learning_rate=0.01,
-        max_depth=6,
+        learning_rate=0.001,
+        max_depth=20,
         subsample=0.8,
         colsample_bytree=0.8,
-        reg_alpha=0.1,
-        reg_lambda=0.1,
+        reg_alpha=0.01,
+        reg_lambda=0.01,
+        min_child_weight=1,
         random_state=1990,
     )
 
@@ -845,7 +855,7 @@ def model_make_estimator(model_string, nums, cats):
         "LGBM": model_lgbm,
         "XGB": model_xgb,
         "KNN": model_knn,
-        "LinearRegression": model_lr,
+        "LR": model_lr,
     }
 
     # Choose the model for hyperparameter optimization
@@ -854,4 +864,8 @@ def model_make_estimator(model_string, nums, cats):
     # Create and evaluate the pipeline
     pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("model", model)])
 
-    return pipeline
+    # Create a power transformer
+    if transform_target:
+        return TransformedTargetRegressor(regressor=pipeline, transformer=PowerTransformer(method="yeo-johnson"))
+    else:
+        return pipeline
