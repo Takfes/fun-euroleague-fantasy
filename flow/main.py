@@ -3,19 +3,8 @@ from pathlib import Path
 # import highspy
 import numpy as np
 import pandas as pd
-from category_encoders import TargetEncoder
 from euroleague_api.game_stats import GameStats
-from lightgbm import LGBMRegressor
-from sklearn import base
-from sklearn.cluster import FeatureAgglomeration
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error
-from sklearn.model_selection import RandomizedSearchCV, train_test_split
-from sklearn.neighbors import KNeighborsRegressor
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, PowerTransformer, StandardScaler
-from xgboost import XGBRegressor
 
 from elfantasy.config import DATA_DIR
 from elfantasy.functions import (
@@ -197,7 +186,7 @@ review_columns = [
     "valuation_pred",
 ]
 rv = df_predictions[review_columns].dropna()
-rv.to_clipboard(index=True)
+# rv.to_clipboard(index=True)
 
 # Call the function with the appropriate arguments
 plot_regression_diagnostics(y_test, y_pred)
@@ -220,16 +209,19 @@ for w in range(min_weeks + 1, df_predictions.week.max().item() + 1):
     print(f"Optimizing week {w}")
     dfw = df_predictions[df_predictions["week"] == w].reset_index(drop=True).copy()
     # Optimal
-    team, obj, budget = build_opt_model(dfw, value_col="valuation", budget=100)
-    solutions_optimal[w] = {"team": team, "obj": obj, "budget": budget}
+    sol = build_opt_model(dfw, value_col="valuation", budget=100)
+    solutions_optimal[w] = sol
     # Baseline
-    team, obj, budget = build_opt_model(dfw, value_col=baseline_column, budget=100)
-    solutions_baseline[w] = {"team": team, "obj": obj, "budget": budget}
+    sol = build_opt_model(dfw, value_col=baseline_column, budget=100)
+    solutions_baseline[w] = sol
     # Model
-    team, obj, budget = build_opt_model(dfw, value_col="valuation_pred", budget=100)
-    solutions_model[w] = {"team": team, "obj": obj, "budget": budget}
+    sol = build_opt_model(dfw, value_col="valuation_pred", budget=100)
+    solutions_model[w] = sol
 
 # Collect results
+
+pd.DataFrame(solutions_optimal).T
+
 simres = pd.concat(
     [
         pd.DataFrame(solutions_optimal).T.rename(columns=lambda x: f"{x}_optimal"),
@@ -237,28 +229,16 @@ simres = pd.concat(
         pd.DataFrame(solutions_model).T.rename(columns=lambda x: f"{x}_model"),
     ],
     axis=1,
-)[
-    [
-        "obj_optimal",
-        "obj_baseline",
-        "obj_model",
-        "budget_baseline",
-        "budget_optimal",
-        "budget_model",
-        "team_optimal",
-        "team_baseline",
-        "team_model",
-    ]
-]
+)
 
 # Calculate differences
-simres["obj_opt_vs_baseline"] = (simres["obj_optimal"] - simres["obj_baseline"]).astype(float)
-simres["obj_opt_vs_model"] = (simres["obj_optimal"] - simres["obj_model"]).astype(float)
+simres["obj_opt_vs_baseline"] = (simres["objective_value_optimal"] - simres["objective_value_baseline"]).astype(float)
+simres["obj_opt_vs_model"] = (simres["objective_value_optimal"] - simres["objective_value_model"]).astype(float)
 
 # Review
-simres[["obj_opt_vs_baseline", "obj_opt_vs_model"]].describe()
-
-simres.to_clipboard(index=True)
+# simres[["obj_opt_vs_baseline", "obj_opt_vs_model"]].describe()
+# simres.filter(like="obj")
+# simres.to_clipboard(index=True)
 
 """
 # ==============================================================
