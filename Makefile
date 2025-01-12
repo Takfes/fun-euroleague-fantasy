@@ -3,7 +3,7 @@ install: ## Install the virtual environment and install the pre-commit hooks
 	@echo "🚀 Creating virtual environment using uv"
 	@git init
 	@uv sync
-	@uv run pre-commit install
+	# @uv run pre-commit install
 
 .PHONY: check
 check: ## Run code quality tools.
@@ -13,6 +13,43 @@ check: ## Run code quality tools.
 	@uv run pre-commit run -a
 	@echo "🚀 Static type checking: Running mypy"
 	@uv run mypy
+
+.PHONY: run-all
+run-all: ## Run all data processing and modeling steps
+	@echo "🌱 Data Acquisition"
+	@uv run flow/data_acquisition.py
+	@echo "🚀 Feature Engineering"
+	@uv run flow/feature_engineering.py
+	@echo "🎯 Predictive Modeling"
+	@uv run flow/predictive_modeling.py
+	@echo "💥 Squad Optimization"
+	@uv run flow/squad_optimization.py
+
+.PHONY: get-data
+get-data: ## Get data
+	@echo "🌱 Data Acquisition"
+	@uv run flow/data_acquisition.py
+
+.PHONY: features
+features: ## Create features
+	@echo "🚀 Feature Engineering"
+	@uv run flow/feature_engineering.py
+	
+.PHONY: predictions
+predictions: ## Train predictive model
+	@echo "🎯 Predictive Modeling"
+	@uv run flow/predictive_modeling.py
+
+.PHONY: optimize
+optimize: ## Run optimization
+	@echo "💥 Squad Optimization"
+	@uv run flow/squad_optimization.py
+
+.PHONY: clean-data
+clean-data: # Clean data folders
+	@echo "💧 Clean data folders"
+	@find data/* -type f -delete
+	@touch data/datalog.json
 
 .PHONY: test
 test: ## Test the code with pytest
