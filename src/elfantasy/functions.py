@@ -1,4 +1,5 @@
 import time
+from operator import le
 
 # import highspy
 import matplotlib.pyplot as plt
@@ -33,119 +34,10 @@ def timeit(func):
     return wrapper
 
 
-@timeit
-# def build_opt_model_backup(data, value_col, use_solver="glpk", budget=100, guards=4, forwards=4, centers=2):
-#     # df = dfw.copy()
-#     # value_col = 'baseline_column'
-#     # value_col = 'valuation'
-#     # budget=100
-#     # guards=4
-#     # forwards=4
-#     # centers=2
-#     df = data.copy()
-#     max_players = guards + forwards + centers
-
-#     # prepare data
-#     slugs = df["slug"].unique()
-#     positions = df["position"].unique()
-#     posg = df[df.position == "G"]["slug"].unique()
-#     posf = df[df.position == "F"]["slug"].unique()
-#     posc = df[df.position == "C"]["slug"].unique()
-#     values = df[["slug", value_col]].fillna(0).set_index("slug").to_dict()[value_col]
-#     costs = df[["slug", "cr"]].fillna(0).set_index("slug").to_dict()["cr"]
-
-#     # Create a model
-#     model = pyo.ConcreteModel()
-
-#     # Define the sets
-#     model.P = pyo.Set(initialize=slugs)
-#     model.pos = pyo.Set(initialize=positions)
-#     model.posg = pyo.Set(initialize=posg)
-#     model.posf = pyo.Set(initialize=posf)
-#     model.posc = pyo.Set(initialize=posc)
-
-#     # Define parameters
-#     model.v = pyo.Param(model.P, initialize=values)
-#     model.c = pyo.Param(model.P, initialize=costs)
-#     model.max_players = pyo.Param(initialize=max_players)
-#     model.guards = pyo.Param(initialize=guards)
-#     model.forwards = pyo.Param(initialize=forwards)
-#     model.centers = pyo.Param(initialize=centers)
-#     model.budget = pyo.Param(initialize=budget)
-
-#     # Define decision variables
-#     model.x = pyo.Var(model.P, within=pyo.Binary)
-
-#     # Define constraints
-#     def cstr_max_players(model):
-#         return sum(model.x[p] for p in model.P) == model.max_players
-
-#     def cstr_guards(model):
-#         return sum(model.x[p] for p in model.posg) == model.guards
-
-#     def cstr_forwards(model):
-#         return sum(model.x[p] for p in model.posf) == model.forwards
-
-#     def cstr_centers(model):
-#         return sum(model.x[p] for p in model.posc) == model.centers
-
-#     def cstr_budget(model):
-#         return sum(model.x[p] * model.c[p] for p in model.P) <= model.budget
-
-#     model.cstr_max_players = pyo.Constraint(rule=cstr_max_players)
-#     model.cstr_guards = pyo.Constraint(rule=cstr_guards)
-#     model.cstr_forwards = pyo.Constraint(rule=cstr_forwards)
-#     model.cstr_centers = pyo.Constraint(rule=cstr_centers)
-#     model.cstr_budget = pyo.Constraint(rule=cstr_budget)
-
-#     # Define objective function
-#     def obj(model):
-#         return sum(model.x[p] * model.v[p] for p in model.P)
-
-#     model.obj = pyo.Objective(rule=obj, sense=pyo.maximize)
-
-#     # solver options ------------------------------------------------
-#     if use_solver == "appsi_highs":
-#         solver = pyo.SolverFactory("appsi_highs")
-#         solver.options["tee"] = False
-#         solver.options["parallel"] = "on"
-#         solver.options["time_limit"] = 3600 / 2  # 30 minutes time limit
-#         solver.options["presolve"] = "on"
-#         solver.options["mip_rel_gap"] = 0.01  # 1% relative gap
-#         solver.options["simplex_strategy"] = 1  # Dual simplex
-#         solver.options["simplex_max_concurrency"] = 8  # Max concurrency
-#         solver.options["mip_min_logging_interval"] = 10  # Log every 10 seconds
-#         solver.options["mip_heuristic_effort"] = 0.2  # Increase heuristic effort
-#         solver.options["log_file"] = (
-#             "highs.log"  # Sometimes HiGHS doesn't update the console as it solves, so write log file too
-#         )
-#     else:
-#         solver = pyo.SolverFactory(use_solver)
-#     # solver options ------------------------------------------------
-
-#     solver.solve(model, tee=False)
-
-#     solution = {k: int(v > 0.55) for k, v in model.x.extract_values().items()}
-#     df["solution"] = df["slug"].map(solution)
-#     df1 = df[df.solution == 1]
-
-#     # validation ------------------------------------------------
-#     assert df1.shape[0] == max_players, f"More than {max_players} players selected"
-
-#     assert df1[df1.position == "G"].slug.nunique() == guards, f"More than {guards} guards selected"
-
-#     assert df1[df1.position == "F"].slug.nunique() == forwards, f"More than {forwards} forwards selected"
-
-#     assert df1[df1.position == "C"].slug.nunique() == centers, f"More than {centers} centers selected"
-
-#     assert df1.cr.sum().item() <= budget + 0.001, f"Budget exceeded: {df1.cr.sum().item()} > {budget}"
-
-#     assert df1.groupby("team_code").size().max().item() <= 6, "More than 6 players from the same team selected"
-#     # end validation --------------------------------------------
-
-#     # objective_value = model.obj()
-#     objective_value = df[(df.solution == 1)].valuation.sum().item()
-#     return df1.slug.unique().tolist(), objective_value, df1.cr.sum().item()
+# softmax function
+def softmax(x):
+    exp_x = np.exp(x - np.max(x))
+    return exp_x / exp_x.sum()
 
 
 @timeit
@@ -450,11 +342,17 @@ def tidy_euroleague_data(df, games, game_codes):
         "home_away",
         "hometeamcode",
         "awayteamcode",
-        "cr",
         "pdk",
+        "cr",
         "plus",
         "min",
         "starter",
+        "offensive_stats",
+        "defensive_stats",
+        "plus_minus",
+        "valuation_plus",
+        "valuation_minus",
+        "valuation",
         "pts",
         "fgm",
         "fga",
@@ -478,15 +376,14 @@ def tidy_euroleague_data(df, games, game_codes):
         "tov",
         "pf",
         "fouls_received",
-        "plus_minus",
-        "valuation_plus",
-        "valuation_minus",
-        "valuation",
     ]
 
     # https://euroleaguefantasy.euroleaguebasketball.net/10/rules
     valuation_plus = ["pts", "reb", "ast", "stl", "blk", "fouls_received"]
     valuation_minus = ["tov", "blka", "pf", "fgl", "tpl", "ftl"]
+
+    defensive_stats = ["reb", "stl", "blk", "blka", "dreb", "fouls_received"]
+    offensive_stats = ["pts", "ast", "oreb"]
 
     # apply dtypes on the dataframe
     dfc = dfc.astype(dtypes)
@@ -496,6 +393,8 @@ def tidy_euroleague_data(df, games, game_codes):
     dfc["tpl"] = dfc["tpa"] - dfc["tpm"]
     dfc["ftl"] = dfc["fta"] - dfc["ftm"]
 
+    dfc["offensive_stats"] = dfc[offensive_stats].sum(axis=1)
+    dfc["defensive_stats"] = dfc[defensive_stats].sum(axis=1)
     dfc["valuation_plus"] = dfc[valuation_plus].sum(axis=1)
     dfc["valuation_minus"] = dfc[valuation_minus].sum(axis=1)
     dfc["valuation"] = dfc["valuation_plus"] - dfc["valuation_minus"]
@@ -858,9 +757,13 @@ def calculate_game_codes(games):
     )
 
 
-def make_team_form(df, standings_running):
+def make_lineup_static_feats(df, standings_running):
+    """
+    This function takes in a DataFrame of game data and a DataFrame of running standings, and returns a new DataFrame with additional features related to team form. It merges the home and away team standings with the game data, calculates various differences in performance metrics between the home and away teams, and renames the new columns with a suffix to indicate they were created by this function.
+    """
+
     dfc = df.copy()
-    function_suffix = "mtf"
+    function_suffix = "lnp_sttc"
     # select features to maintain out of running standings dataset
     standings_running_features = [
         "Round",
@@ -928,38 +831,70 @@ def make_team_form(df, standings_running):
         .rename(columns=lambda x: x.lower())
     )
 
+    # bring in team's total valuation and is_winner
+    team_stats = (
+        dfc.groupby(["game_code", "team_code"], as_index=False)
+        .agg(team_pts=("pts", "sum"), team_valuation=("valuation", "sum"))
+        .assign(max_pts_per_gc=lambda x: x.groupby("game_code")["team_pts"].transform("max"))
+        .assign(is_winner=lambda x: (x["team_pts"] == x["max_pts_per_gc"]).astype(int))
+        .assign(team_valuation_lag_1=lambda x: x.groupby("team_code")["team_valuation"].shift())
+        .assign(
+            team_valuation_expanding=lambda x: x.sort_values(by="game_code", ascending=True)
+            .groupby("team_code")["team_valuation"]
+            .apply(lambda x: x.shift().expanding().mean())
+            .sort_index(level=1)
+            .reset_index(drop=True)
+        )
+        .drop(columns=["max_pts_per_gc"])
+    )
+
+    team_form_stats = team_form.merge(team_stats, on=["game_code", "team_code"], how="left")
+
     # identify newly created columns
-    new_columns = [x for x in team_form if x not in df.columns]
+    new_columns = [x for x in team_form_stats if x not in df.columns]
     new_columns_names = {x: f"{x}_{function_suffix}" for x in new_columns}
 
-    return team_form.rename(columns=new_columns_names)
+    return team_form_stats.rename(columns=new_columns_names)
 
 
-def make_player_contribution(df, features=None):
-    # player contributions
+def make_player_static_feats(df, features=None):
+    """
+    Calculate player contributions against their team, per week (isolated calculation - figures per week concern that week only) and for specified features in a DataFrame. This function takes a DataFrame containing player statistics and calculates player contributions for specified features. The contributions are calculated in two ways:
+    1. As a softmax of the feature values within each position, team, and week.
+    2. As a percentage of the total feature values within each team and week. The function also shifts the calculated contributions to prevent data leakage.
+    """
+
+    # preparatory steps
     dfc = df.copy()
-    function_suffix = "mpc"
-
-    # softmax function
-    def softmax(x):
-        exp_x = np.exp(x - np.max(x))
-        return exp_x / exp_x.sum()
+    function_suffix = "plr_sttc"
 
     # features for which to calculate contribution
-    features = [
-        "plus_minus",
-        "valuation",
-        "min",
-    ]
+    if features is None:
+        features = [
+            "plus_minus",
+            "valuation",
+            "min",
+        ]
 
     # apply contribution features
     for feat in features:
+        # calculate rankings per week, position, team
+        dfc[f"{feat}_rank_week_pos_team"] = dfc.groupby(["week", "position", "team_name"])[feat].rank(
+            ascending=False, method="min"
+        )
+
+        dfc[f"{feat}_rank_week_team"] = dfc.groupby(["week", "team_name"])[feat].rank(ascending=False, method="min")
+
+        dfc[f"{feat}_rank_week_pos"] = dfc.groupby(["week", "position"])[feat].rank(ascending=False, method="min")
+
+        dfc[f"{feat}_rank_week"] = dfc.groupby(["week"])[feat].rank(ascending=False, method="min")
+
         # player contribution per position - as softmax
         dfc[f"{feat}_contrib_pos_sft"] = dfc.groupby(["week", "team_name", "team_code", "position"], as_index=False)[
             feat
         ].transform(softmax)
         # ! shift to prevent data leakage
-        dfc[f"{feat}_contrib_pos_sft"] = dfc[f"{feat}_contrib_pos_sft"] = (
+        dfc[f"{feat}_contrib_pos_sft"] = (
             dfc.sort_values(by=["week"], ascending=True)
             .groupby(["slug"], as_index=False)[f"{feat}_contrib_pos_sft"]
             .shift()
@@ -983,22 +918,38 @@ def make_player_contribution(df, features=None):
     return dfc.fillna(0).rename(columns=new_columns_names)
 
 
-def make_player_rolling_stats(df, features=None, lags=(1, 3), rolls=(3,)):
+def make_player_tempor_feats(df, features=None, lags=(1, 3), rolls=(3,)):
+    """
+    This function calculates rolling statistics for player performance data in a DataFrame. It creates new features based on lagged values and rolling averages for specified columns.
+    """
+
+    # preparatory steps
     dfc = df.copy()
-    function_suffix = "mprs"
+    function_suffix = "plr_tmpr"
+
     # infer features to apply rolling stats
     if features is None:
         features = [x for x in dfc.columns if x == "valuation" or "contrib" in x]
+
     # apply rolling stats
     for feature in features:
-        # Lag Features
+        # expanding (ytd) average
+        dfc[f"{feature}_expanding"] = (
+            dfc.sort_values(by=["week"], ascending=True)
+            .groupby(["slug"])[feature]
+            .apply(lambda x: x.shift().expanding().mean())
+            .sort_index(level=1)
+            .reset_index(drop=True)
+        )
+
+        # lag features
         for lag in lags:
             # create lag feature
             dfc[f"{feature}_lag_{lag}"] = (
                 dfc.sort_values(by=["week"], ascending=True).groupby(["slug"])[f"{feature}"].shift(lag)
             )
 
-        # Rolling Features
+        # rolling features
         for roll in rolls:
             # create rolling average feature
             dfc[f"{feature}_roll_{roll}"] = (

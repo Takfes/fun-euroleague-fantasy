@@ -14,9 +14,9 @@ from elfantasy.functions import (
     calculate_running_standings,
     calculate_standings,
     get_euroleague_data,
-    make_player_contribution,
-    make_player_rolling_stats,
-    make_team_form,
+    make_lineup_static_feats,
+    make_player_static_feats,
+    make_player_tempor_feats,
     plot_regression_diagnostics,
     plot_stats_boxes,
     plot_stats_lines,
@@ -52,18 +52,14 @@ df = tidy_euroleague_data(df_raw_static, games, game_codes)
 # ==============================================================
 """
 
-# TODO : bring info about win or loss games in df - for reporting not modeling
-# TODO : add feature in df ranking of players per week based on value
 # TODO : add all time valuation and its std per player and week
-# TODO : add feature offense/defense rating - defeat but player did well
 # TODO : create feature class that will work per week - valuation of all available observations vs relying on preconstructed features - create features on demand
-# TODO : add feature - team total valuation per week
 # TODO : explore features through correlation matrix - then create interactions
 # TODO : explore GroupedCrossValidation - instead of manual thing
 
-df1 = make_team_form(df, standings_running)
-df2 = make_player_contribution(df1)
-df3 = make_player_rolling_stats(df2)
+df1 = make_lineup_static_feats(df, standings_running)
+df2 = make_player_static_feats(df1)
+df3 = make_player_tempor_feats(df2)
 
 df_features = df3.sort_values(by=["week", "team_code", "slug"], ascending=True).reset_index(drop=True).copy()
 
@@ -106,7 +102,8 @@ estimator = build_pred_model(model_string, numerical_features, categorical_featu
 store_predictions_for_first_train = False
 verbose = True
 min_weeks = 5  # Minimum number of weeks for initial training
-baseline_column = "valuation_roll_3_mprs"
+baseline_column = "valuation_roll_3_plr_tmpr"
+prediction_column = "valuation_pred"
 total_weeks = design_matrix["week"].nunique()
 df_predictions = df_features.copy()
 maes_baseline = []
@@ -129,9 +126,9 @@ for index, current_week in enumerate(range(min_weeks, total_weeks), start=1):
 
     # Store predictions in the df_predictions dataframe
     if index == 1 and store_predictions_for_first_train:
-        df_predictions.loc[train_indices, "valuation_pred"] = estimator.predict(X_train)
+        df_predictions.loc[train_indices, prediction_column] = estimator.predict(X_train)
 
-    df_predictions.loc[test_indices, "valuation_pred"] = y_pred
+    df_predictions.loc[test_indices, prediction_column] = y_pred
 
     # Calculate the MAE
     y_pred_baseline = df_predictions.loc[test_indices][baseline_column]
@@ -185,23 +182,23 @@ review_columns = [
     "home_away",
     "hometeamcode",
     "awayteamcode",
-    "home_away_factor_mtf",
-    "win_diff_mtf",
-    "win_rate_diff_mtf",
-    "win_rate_ha_diff_mtf",
-    "win_last1games_mtf",
-    "win_last3games_mtf",
-    "win_last5games_mtf",
+    "home_away_factor_lnp_sttc",
+    "win_diff_lnp_sttc",
+    "win_rate_diff_lnp_sttc",
+    "win_rate_ha_diff_lnp_sttc",
+    "win_last1games_lnp_sttc",
+    "win_last3games_lnp_sttc",
+    "win_last5games_lnp_sttc",
     "valuation",
-    "valuation_roll_3_mprs",
-    "valuation_pred",
+    "valuation_roll_3_plr_tmpr",
+    prediction_column,
 ]
 rv = df_predictions[review_columns].dropna()
 # rv.to_clipboard(index=True)
 
 # Call the function with the appropriate arguments
 plot_regression_diagnostics(y_test, y_pred)
-plot_regression_diagnostics(rv["valuation"], rv["valuation_pred"])
+plot_regression_diagnostics(rv["valuation"], rv[prediction_column])
 
 
 """
@@ -226,7 +223,7 @@ for w in range(min_weeks + 1, df_predictions.week.max().item() + 1):
     sol = build_opt_model(dfw, value_col=baseline_column, budget=100)
     solutions_baseline[w] = sol
     # Model
-    sol = build_opt_model(dfw, value_col="valuation_pred", budget=100)
+    sol = build_opt_model(dfw, value_col=prediction_column, budget=100)
     solutions_model[w] = sol
 
 # Collect results
