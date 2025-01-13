@@ -37,7 +37,10 @@ data_dir_datalog = config.data_dir_datalog
 
 def read_datalog():
     with open(data_dir_datalog) as f:
-        return json.load(f)
+        try:
+            return json.load(f)
+        except Exception:
+            return {}
 
 
 def write_datalog(data):

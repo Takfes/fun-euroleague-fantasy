@@ -21,7 +21,7 @@ pd.set_option("display.max_rows", 20)
 timetag = get_timetag()
 
 # configuration
-config = Configuration()
+config = Configuration(use_dotenv_config_yaml=True)
 data_dir_euroleague_games = config.data_dir_euroleague_games
 data_dir_euroleague_data = config.data_dir_euroleague_data
 data_dir_features_data = config.data_dir_features_data

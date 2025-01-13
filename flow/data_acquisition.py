@@ -7,7 +7,7 @@ from elfantasy.config import Configuration
 from elfantasy.utils import get_timetag, update_datalog
 
 # configuration
-config = Configuration()
+config = Configuration(use_dotenv_config_yaml=True)
 competition_code = config.competition_code
 season = config.season
 game_stats_dir = config.data_dir_euroleague_games

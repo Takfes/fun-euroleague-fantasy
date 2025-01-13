@@ -5,12 +5,12 @@ from elfantasy.optimization import build_opt_model
 from elfantasy.utils import get_timetag, read_datalog, update_datalog
 
 # configuration
-config = Configuration()
+config = Configuration(use_dotenv_config_yaml=True)
 data_dir_predictions = config.data_dir_predictions
 data_dir_optimizations = config.data_dir_optimizations
 training_min_weeks = config.training_min_weeks
-baseline_column = config.baseline_column
-prediction_column = config.prediction_column
+baseline_column_optimizations = config.baseline_column_optimizations
+model_column_optimizations = config.model_column_optimizations
 datalog = read_datalog()
 
 # timetag
@@ -33,10 +33,10 @@ for w in range(training_min_weeks + 1, df_predictions.week.max().item() + 1):
     sol = build_opt_model(dfw, value_col="valuation", budget=100)
     solutions_optimal[w] = sol
     # Baseline
-    sol = build_opt_model(dfw, value_col=baseline_column, budget=100)
+    sol = build_opt_model(dfw, value_col=baseline_column_optimizations, budget=100)
     solutions_baseline[w] = sol
     # Model
-    sol = build_opt_model(dfw, value_col=prediction_column, budget=100)
+    sol = build_opt_model(dfw, value_col=model_column_optimizations, budget=100)
     solutions_model[w] = sol
 
 # Collect results

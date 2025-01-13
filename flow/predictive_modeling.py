@@ -7,13 +7,16 @@ from elfantasy.modeling import build_pred_model
 from elfantasy.utils import get_timetag, read_datalog, update_datalog
 
 # configuration
-config = Configuration()
+config = Configuration(use_dotenv_config_yaml=True)
 data_dir_features_data = config.data_dir_features_data
 data_dir_predictions = config.data_dir_predictions
 datalog = read_datalog()
 training_min_weeks = config.training_min_weeks
-baseline_column = config.baseline_column
-prediction_column = config.prediction_column
+baseline_column_predictions = config.baseline_column_predictions
+model_column_predictions = config.model_column_predictions
+predictive_model_string = config.predictive_model_string
+predictive_model_id_cols = config.predictive_model_id_cols
+predictive_model_cats_cols = config.predictive_model_cats_cols
 
 # timetag
 timetag = get_timetag()
@@ -23,15 +26,11 @@ euroleague_features_path = data_dir_features_data / datalog["features"]
 df_features = pd.read_csv(euroleague_features_path)
 
 # Define the data
-idcols = [
-    "week",
-    "slug",
-    "team_code",
-]
+idcols = predictive_model_id_cols
 # Define the features
-feats = [x for x in df_features.columns if ("mtf" in x) or ("mpc" in x) or ("mprs" in x)]
+feats = [x for x in df_features.columns if ("_lnp_sttc" in x) or ("_plr_sttc" in x) or ("_plr_tmpr" in x)]
 # Define feature columns
-categorical_features = ["team_code", "slug"]
+categorical_features = predictive_model_cats_cols
 numerical_features = [x for x in feats if x not in categorical_features]
 # Define the target
 target = "valuation"
@@ -46,8 +45,7 @@ X = design_matrix.drop(columns=[target])
 y = design_matrix[target]
 
 # Make the estimator
-model_string = "LR"
-estimator = build_pred_model(model_string, numerical_features, categorical_features, transform_target=True)
+estimator = build_pred_model(predictive_model_string, numerical_features, categorical_features, transform_target=True)
 
 # Setup model training params
 store_predictions_for_first_train = False
@@ -74,12 +72,12 @@ for index, current_week in enumerate(range(training_min_weeks, total_weeks), sta
 
     # Store predictions in the df_predictions dataframe
     if index == 1 and store_predictions_for_first_train:
-        df_predictions.loc[train_indices, prediction_column] = estimator.predict(X_train)
+        df_predictions.loc[train_indices, model_column_predictions] = estimator.predict(X_train)
 
-    df_predictions.loc[test_indices, prediction_column] = y_pred
+    df_predictions.loc[test_indices, model_column_predictions] = y_pred
 
     # Calculate the MAE
-    y_pred_baseline = df_predictions.loc[test_indices][baseline_column]
+    y_pred_baseline = df_predictions.loc[test_indices][baseline_column_predictions]
     mae_baseline = mean_absolute_error(y_test, y_pred_baseline)
     mae = mean_absolute_error(y_test, y_pred)
     maes_baseline.append(mae_baseline.item())
@@ -94,7 +92,8 @@ for index, current_week in enumerate(range(training_min_weeks, total_weeks), sta
         print()
 
 
-print(f"Final Results {model_string} model")
+print(f"Final Results {predictive_model_string} model")
+print(f"Baseline column {baseline_column_predictions}")
 print(f"- Running Baseline: {np.mean(maes_baseline):.2f} +/- {np.std(maes_baseline):.2f}")
 print(f"- Running MAE :     {np.mean(maes):.2f} +/- {np.std(maes):.2f}")
 

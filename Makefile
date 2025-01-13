@@ -40,8 +40,8 @@ predictions: ## Train predictive model
 	@echo "🎯 Predictive Modeling"
 	@uv run flow/predictive_modeling.py
 
-.PHONY: optimize
-optimize: ## Run optimization
+.PHONY: optimization
+optimization: ## Run optimization
 	@echo "💥 Squad Optimization"
 	@uv run flow/squad_optimization.py
 
