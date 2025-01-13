@@ -9,8 +9,10 @@ config = Configuration(use_dotenv_config_yaml=True)
 data_dir_predictions = config.data_dir_predictions
 data_dir_optimizations = config.data_dir_optimizations
 training_min_weeks = config.training_min_weeks
+optimization_solver = config.optimization_solver
 baseline_column_optimizations = config.baseline_column_optimizations
 model_column_optimizations = config.model_column_optimizations
+force_players = config.force_players if config.force_players else None
 datalog = read_datalog()
 
 # timetag
@@ -27,20 +29,38 @@ solutions_model = {}
 
 # Optimize teams for each week using different predictors
 for w in range(training_min_weeks + 1, df_predictions.week.max().item() + 1):
-    print(f"Optimizing week {w}")
+    print(f"Optimizing week {w} using {optimization_solver}")
     dfw = df_predictions[df_predictions["week"] == w].reset_index(drop=True).copy()
+    if force_players:
+        print(f"Attempting to force players: {force_players}")
     # Optimal
-    sol = build_opt_model(dfw, value_col="valuation", budget=100)
+    sol = build_opt_model(
+        dfw,
+        value_col="valuation",
+        budget=100,
+        use_solver=optimization_solver,
+    )
     solutions_optimal[w] = sol
     # Baseline
-    sol = build_opt_model(dfw, value_col=baseline_column_optimizations, budget=100)
+    sol = build_opt_model(
+        dfw,
+        value_col=baseline_column_optimizations,
+        budget=100,
+        force_players=force_players,
+        use_solver=optimization_solver,
+    )
     solutions_baseline[w] = sol
     # Model
-    sol = build_opt_model(dfw, value_col=model_column_optimizations, budget=100)
+    sol = build_opt_model(
+        dfw,
+        value_col=model_column_optimizations,
+        budget=100,
+        force_players=force_players,
+        use_solver=optimization_solver,
+    )
     solutions_model[w] = sol
 
 # Collect results
-
 df_optimizations = pd.concat(
     [
         pd.DataFrame(solutions_optimal).T.rename(columns=lambda x: f"{x}_optimal"),

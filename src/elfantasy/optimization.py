@@ -6,19 +6,35 @@ from elfantasy.utils import timeit
 
 
 @timeit
-def build_opt_model(data, value_col, budget=100, use_solver="glpk", guards=4, forwards=4, centers=2):
-    df = data.copy()
-    max_players = guards + forwards + centers
-
+def build_opt_model(
+    data, value_col, budget=100, force_players=None, guards=4, forwards=4, centers=2, use_solver="glpk"
+):
     # df = dfw.copy()
     # guards = 4
     # forwards = 4
     # centers = 2
     # value_col = "valuation"
+    # use_solver = "appsi_highs"
     # use_solver = "glpk"
     # budget = 100
+    # force_players = ["sasha-vezenkov", "kendrick-nunn"]
+    # force_players = ["kostas-sloukas", "kendrick-nunn"]
+
+    df = data.copy()
+    max_players = guards + forwards + centers
 
     # prepare data -------------------------------------------------
+
+    if force_players:
+        # validate that player is in the dataset - may not be available in a certain week due to injury on suspension
+        validated_force_players = [p for p in force_players if p in df.slug.unique()]
+        # update force players list
+        force_players = validated_force_players
+        if force_players:
+            forced_cr = df.loc[df.slug.isin(force_players), "cr"].sum().item()
+            budget = budget - forced_cr
+        else:
+            print("Force players not found in the dataset")
 
     slugs = df["slug"].unique()
     positions = sorted(df["position"].unique())
@@ -136,6 +152,12 @@ def build_opt_model(data, value_col, budget=100, use_solver="glpk", guards=4, fo
 
     model.obj = pyo.Objective(rule=obj, sense=pyo.maximize)
 
+    # fix force_players decision variables ------------------------------------------------
+
+    if force_players:
+        for p in force_players:
+            model.xs5[p].fix(1)
+
     # solver options ------------------------------------------------
 
     if use_solver == "appsi_highs":
@@ -149,15 +171,17 @@ def build_opt_model(data, value_col, budget=100, use_solver="glpk", guards=4, fo
         solver.options["simplex_max_concurrency"] = 8  # Max concurrency
         solver.options["mip_min_logging_interval"] = 10  # Log every 10 seconds
         solver.options["mip_heuristic_effort"] = 0.2  # Increase heuristic effort
-        solver.options["log_file"] = (
-            "highs.log"  # Sometimes HiGHS doesn't update the console as it solves, so write log file too
-        )
+        # solver.options["log_file"] = (
+        #     "highs.log"  # Sometimes HiGHS doesn't update the console as it solves, so write log file too
+        # )
     else:
         solver = pyo.SolverFactory(use_solver)
 
     # solve problem -------------------------------------------------
 
     results = solver.solve(model, tee=False)
+    print(f"Solver Status : {results.solver.status}")
+    print(f"Termination Condition : {results.solver.termination_condition}")
 
     # solve problem -------------------------------------------------
 
@@ -210,6 +234,11 @@ def build_opt_model(data, value_col, budget=100, use_solver="glpk", guards=4, fo
     assert df1.cr.sum().item() <= budget + 0.001, f"Budget exceeded: {df1.cr.sum().item()} > {budget}"
 
     assert df1.groupby("team_code").size().max().item() <= 6, "More than 6 players from the same team selected"
+
+    if force_players:
+        assert df1.slug.isin(force_players).sum().item() == len(force_players), (
+            f"Force players not selected: {force_players}"
+        )
 
     # prepare solution summary ------------------------------------------------
 

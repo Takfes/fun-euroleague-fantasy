@@ -33,8 +33,10 @@ class Configuration:
     ]
     predictive_model_cats_cols = ["team_code", "slug"]
     # squad optimization
+    optimization_solver = "glpk"
     baseline_column_optimizations = "valuation_expanding_mean_plr_tmpr"  # "valuation_roll_3_plr_tmpr"
     model_column_optimizations = "valuation_pred"
+    force_players = []
 
     def __init__(self, use_dotenv_config_yaml=False):
         if use_dotenv_config_yaml:
@@ -104,8 +106,10 @@ class Configuration:
         self.predictive_model_id_cols = Configuration.predictive_model_id_cols
         self.predictive_model_cats_cols = Configuration.predictive_model_cats_cols
         # squad optimization
+        self.optimization_solver = Configuration.optimization_solver
         self.baseline_column_optimizations = Configuration.baseline_column_optimizations
         self.model_column_optimizations = Configuration.model_column_optimizations
+        self.force_players = Configuration.force_players
 
     def configuration_from_yaml(self, yaml_path):
         with open(yaml_path) as file:
@@ -134,5 +138,7 @@ class Configuration:
         self.predictive_model_id_cols = config.get("predictive_modeling").get("predictive_model_id_cols")
         self.predictive_model_cats_cols = config.get("predictive_modeling").get("predictive_model_cats_cols")
         # squad optimization
+        self.optimization_solver = config.get("squad_optimization").get("optimization_solver")
         self.baseline_column_optimizations = config.get("squad_optimization").get("baseline_column_optimizations")
         self.model_column_optimizations = config.get("squad_optimization").get("model_column_optimizations")
+        self.force_players = config.get("squad_optimization").get("force_players")

@@ -24,5 +24,7 @@ predictive_modeling:
     - "team_code"
     - "slug"
 squad_optimization:
+  optimization_solver: "appsi_highs"
   baseline_column_optimizations: "valuation_expanding_mean_plr_tmpr"
   model_column_optimizations: "valuation_pred"
+  force_players: []
